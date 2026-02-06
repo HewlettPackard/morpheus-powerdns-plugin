@@ -150,7 +150,7 @@ class PowerDnsProvider implements DNSProvider {
      */
     @Override
     void refresh(AccountIntegration integration) {
-        log.info("Refreshing Power DNS")
+        log.debug("Refreshing Power DNS")
         HttpApiClient client = new HttpApiClient()
         try {
             def apiUrl = cleanServiceUrl(integration.serviceUrl)
@@ -161,11 +161,11 @@ class PowerDnsProvider implements DNSProvider {
             def testResults
             // Promise
             if(hostOnline) {
-                log.info("Host Online for PowerDns")
+                log.debug("Host Online for PowerDns")
                 Date now = new Date()
                 cacheZones(client,integration)
                 cacheZoneRecords(client,integration)
-                log.info("Sync Completed in ${new Date().time - now.time}ms")
+                log.debug("Sync Completed in ${new Date().time - now.time}ms")
                 morpheus.integration.updateAccountIntegrationStatus(integration, AccountIntegration.Status.ok).subscribe().dispose()
             } else {
                 morpheus.integration.updateAccountIntegrationStatus(integration, AccountIntegration.Status.error, 'Power DNS not reachable').subscribe().dispose()
