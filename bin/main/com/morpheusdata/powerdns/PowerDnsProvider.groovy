@@ -56,7 +56,7 @@ class PowerDnsProvider implements DNSProvider {
      * Creates a manually allocated DNS Record of the specified record type on the passed {@link NetworkDomainRecord} object.
      * This is typically called outside of automation and is a manual method for administration purposes.
      * @param integration The DNS Integration record which contains things like connectivity info to the DNS Provider
-     * @param record The domain record that is being requested for creation. All the metadata needed to create teh record
+     * @param record The domain record that is being requested for creation. All the metadata needed to create the record
      *               should exist here.
      * @param opts any additional options that may be used in the future to configure behavior. Currently unused
      * @return a ServiceResponse with the success/error state of the create operation as well as the modified record.
@@ -87,7 +87,7 @@ class PowerDnsProvider implements DNSProvider {
                 record.externalId = body.rrsets[0].name
                 return new ServiceResponse<NetworkDomainRecord>(true,null,null,record)
             } else {
-                log.error("An error occurred trying to create a dns record {} via {}: Exit {}: {}",fqdn,integration.name, results.exitCode,results.error ?: results.output)
+                log.error("An error occurred trying to create a dns record {} via {}: Exit {}: {}",fqdn,integration.name, results.errorCode,results.error ?: results.output)
                 return new ServiceResponse<NetworkDomainRecord>(false,"Error Creating DNS Record ${results.error}",null,record)
             }
         } catch(e) {
