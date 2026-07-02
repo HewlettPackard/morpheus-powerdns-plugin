@@ -87,7 +87,7 @@ class PowerDnsProvider implements DNSProvider {
                 record.externalId = body.rrsets[0].name
                 return new ServiceResponse<NetworkDomainRecord>(true,null,null,record)
             } else {
-                log.error("An error occurred trying to create a dns record {} via {}: Exit {}: {}",fqdn,integration.name, results.exitCode,results.error ?: results.output)
+                log.error("An error occurred trying to create a dns record {} via {}: Exit {}: {}",fqdn,integration.name, results.errorCode,results.error ?: results.output)
                 return new ServiceResponse<NetworkDomainRecord>(false,"Error Creating DNS Record ${results.error}",null,record)
             }
         } catch(e) {
