@@ -56,7 +56,7 @@ class PowerDnsProvider implements DNSProvider {
      * Creates a manually allocated DNS Record of the specified record type on the passed {@link NetworkDomainRecord} object.
      * This is typically called outside of automation and is a manual method for administration purposes.
      * @param integration The DNS Integration record which contains things like connectivity info to the DNS Provider
-     * @param record The domain record that is being requested for creation. All the metadata needed to create teh record
+     * @param record The domain record that is being requested for creation. All the metadata needed to create the record
      *               should exist here.
      * @param opts any additional options that may be used in the future to configure behavior. Currently unused
      * @return a ServiceResponse with the success/error state of the create operation as well as the modified record.
