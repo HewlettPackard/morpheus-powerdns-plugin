@@ -1,20 +1,61 @@
-## Power DNS Morpheus Plugin
+# Morpheus PowerDNS Plugin
 
-This is the official Morpheus plugin for interacting with Power DNS. This automates functions as it relates to automatically creating DNS Records and cleaning up DNS records both during workload provisioning and manual. It should be noted that if joining a VM to a Domain, this integration is not needed as the Domain joining typically auto creates a zone record. This was originally embedded into morpheus and is being extracted for easier maintenance
+This plugin provides a DNS integration between [PowerDNS](https://www.powerdns.com/) and [Morpheus](https://morpheusdata.com). It enables DNS zone sync, DNS record sync, DNS record creation and removal, and optional pointer-record creation from within the Morpheus platform.
 
-### Building
+## Requirements
 
-This is a Morpheus plugin that leverages the `morpheus-plugin-core` which can be referenced by visiting [https://developer.morpheusdata.com](https://developer.morpheusdata.com). It is a groovy plugin designed to be uploaded into a Morpheus environment via the `Administration -> Integrations -> Plugins` section. To build this product from scratch simply run the shadowJar gradle task on java 11:
+| Component | Minimum Version |
+|-----------|----------------|
+| Morpheus | 7.0.2 |
+
+## Installation
+
+1. Download the latest `.jar` from the [Releases](https://github.com/HewlettPackard/morpheus-powerdns-plugin/releases) page, or [build it yourself](#building).
+2. In Morpheus, navigate to **Administration → Integrations → Plugins**.
+3. Click **Browse** and upload the `.jar` file.
+4. The **PowerDNS** integration type will appear after the plugin loads.
+
+## Configuration
+
+When adding a PowerDNS integration in Morpheus (**Administration → Integrations → Add Integration**), provide the following:
+
+| Field | Description |
+|-------|-------------|
+| **API Url** | PowerDNS API endpoint. HTTPS is recommended. |
+| **Credentials** | Morpheus API key credential for the PowerDNS API token. |
+| **Token** | Local PowerDNS API token field used when not selecting a stored credential. |
+| **Service Version** | PowerDNS API version to use: `3` or `4`. |
+| **Create Pointers** | Attempt to create pointer records when creating DNS records. |
+| **Domain Active** | Mark synced DNS domains active by default in Morpheus. |
+
+## Features
+
+### DNS Management
+The plugin registers a `DNSProvider` for PowerDNS. Supported operations include:
+
+- Create DNS records through the PowerDNS API
+- Remove DNS records through the PowerDNS API
+- Use PowerDNS API v3 or v4 request formats based on the configured service version
+- Optionally request pointer creation when creating records
+- Store synced record comments, TTLs, types, and content in Morpheus
+
+### DNS Sync
+The following resources are discovered and kept in sync from PowerDNS:
+
+- **DNS Zones** — authoritative zones returned by the PowerDNS server
+- **DNS Records** — record sets within each synced zone
+- **Zone Metadata** — zone type, serial, DNSSEC flag, FQDN, and active state
+
+Any additions, updates, and removals in PowerDNS are reflected in Morpheus on the next integration refresh.
+
+## Building
 
 ```bash
 ./gradlew shadowJar
 ```
 
-A jar will be produced in the `build/lib` folder that can be uploaded into a Morpheus environment.
+The plugin JAR will be written to `build/libs/`.
 
-### Configuring
+## License
 
-Once the plugin is loaded in the environment. Microsoft DNS Becomes available in `Infrastructure -> Network -> Services`.
-
-When adding the integration simply enter ip of the Microsoft DNS Server and the credentials with sufficient enough winrm privileges.
-
+Copyright 2024 Morpheus Data, LLC. Licensed under the [Apache License, Version 2.0](LICENSE).
