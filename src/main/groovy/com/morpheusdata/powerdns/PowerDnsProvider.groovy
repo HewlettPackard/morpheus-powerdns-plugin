@@ -88,7 +88,8 @@ class PowerDnsProvider implements DNSProvider {
 
                 log.info("add record results: ${results}")
                 if(results.success){
-                    record.externalId = body.rrsets[0].name
+                    def externalIdPatternStr = "${recordType.toUpperCase()}:${record.name}".toString()
+                    record.externalId = externalIdPatternStr
                     return new ServiceResponse<NetworkDomainRecord>(true,null,null,record)
                 } else {
                     log.error("An error occurred trying to create a dns record {} via {}: Exit {}: {}",fqdn,integration.name, results.errorCode,results.error ?: results?.data?.error)
@@ -100,7 +101,7 @@ class PowerDnsProvider implements DNSProvider {
                 client.shutdownClient()
             }
         } else {
-            log.error("createRecord already Exists: ${record}")
+            log.error("createRecord record already exists: Name: ${record.name} Type: ${record.type}")
             return new ServiceResponse<NetworkDomainRecord>(false,"Error Creating DNS Record: Record already exists: ",null,record)
         }
 
@@ -559,18 +560,16 @@ class PowerDnsProvider implements DNSProvider {
  * @return {@code true} if the record is found in the Morpheus context, {@code false} otherwise.
  */
     private boolean doesRecordExist(NetworkDomainRecord record) {
-        def recordService  = morpheus.getNetwork().getDomain().getRecord()
+        def recordService  = morpheus.services.getNetwork().getDomain().getRecord()
 
         String externalIdPatternStr = "${record.type}:${record.fqdn}".toString()
         DataQuery query = new DataQuery()
                 .withFilters(
-                    new DataOrFilter(
                         new DataFilter<String>("externalId", "==", externalIdPatternStr)
                 )
-        )
-        List<NetworkDomainRecord> existingRecordsWithMatchingExternalId = recordService.list(query).toList().blockingGet()
+        NetworkDomainRecord existingRecordsWithMatchingExternalId = recordService.find(query)
 
-        return existingRecordsWithMatchingExternalId && !existingRecordsWithMatchingExternalId.isEmpty()
+        return existingRecordsWithMatchingExternalId != null
     }
 
     def getRecordCreateBody(AccountIntegration integration, String fqdn, String recordType, String content, Integer ttl = 86400,Boolean createPtr=false) {
