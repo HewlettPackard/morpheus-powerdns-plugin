@@ -18,6 +18,9 @@ package com.morpheusdata.powerdns
 import com.morpheusdata.core.DNSProvider
 import com.morpheusdata.core.MorpheusContext
 import com.morpheusdata.core.Plugin
+import com.morpheusdata.core.data.DataFilter
+import com.morpheusdata.core.data.DataOrFilter
+import com.morpheusdata.core.data.DataQuery
 import com.morpheusdata.core.util.ConnectionUtils
 import com.morpheusdata.core.util.HttpApiClient
 import com.morpheusdata.core.util.NetworkUtility
@@ -56,45 +59,53 @@ class PowerDnsProvider implements DNSProvider {
      * Creates a manually allocated DNS Record of the specified record type on the passed {@link NetworkDomainRecord} object.
      * This is typically called outside of automation and is a manual method for administration purposes.
      * @param integration The DNS Integration record which contains things like connectivity info to the DNS Provider
-     * @param record The domain record that is being requested for creation. All the metadata needed to create teh record
+     * @param record The domain record that is being requested for creation. All the metadata needed to create the record
      *               should exist here.
      * @param opts any additional options that may be used in the future to configure behavior. Currently unused
      * @return a ServiceResponse with the success/error state of the create operation as well as the modified record.
      */
     @Override
     ServiceResponse createRecord(AccountIntegration integration, NetworkDomainRecord record, Map opts) {
-        log.info("Creating DNS Record via Power DNS...")
-        HttpApiClient client = new HttpApiClient()
-        Boolean doPointer = (integration.serviceFlag == null || integration.serviceFlag)
-        def fqdn = record.fqdn
-        try {
-            if(!fqdn?.endsWith('.')) {
-                fqdn = fqdn + '.'
+        if(!doesRecordExist(record)) {
+            log.info("Creating DNS Record via Power DNS...")
+            HttpApiClient client = new HttpApiClient()
+            Boolean doPointer = (integration.serviceFlag == null || integration.serviceFlag)
+            def fqdn = record.fqdn
+            try {
+                if(!fqdn?.endsWith('.')) {
+                    fqdn = fqdn + '.'
+                }
+                String serviceUrl = cleanServiceUrl(integration.serviceUrl)
+                String apiPath = cleanApiPath('/' + record.networkDomain.externalId)
+                String recordType = record.type
+                String token = integration.credentialData?.password ?: integration.servicePassword
+
+                def body = getRecordCreateBody(integration, fqdn, recordType, record.content,record.ttl ?: 86400,doPointer)
+
+                def results = client.callJsonApi(serviceUrl, apiPath, null, null, new HttpApiClient.RequestOptions(headers:['Content-Type':'application/json','X-API-KEY':token], ignoreSSL: true,body:body), 'PATCH')
+
+                results.data
+
+                log.info("add record results: ${results}")
+                if(results.success){
+                    def externalIdPatternStr = "${recordType.toUpperCase()}:${record.name}".toString()
+                    record.externalId = externalIdPatternStr
+                    return new ServiceResponse<NetworkDomainRecord>(true,null,null,record)
+                } else {
+                    log.error("An error occurred trying to create a dns record {} via {}: Exit {}: {}",fqdn,integration.name, results.errorCode,results.error ?: results?.data?.error)
+                    return new ServiceResponse<NetworkDomainRecord>(false,"Error Creating DNS Record ${results.error}",null,record)
+                }
+            } catch(e) {
+                log.error("createRecord error: ${e}", e)
+            } finally {
+                client.shutdownClient()
             }
-            String serviceUrl = cleanServiceUrl(integration.serviceUrl)
-            String apiPath = cleanApiPath('/' + record.networkDomain.externalId)
-            String recordType = record.type
-            String token = integration.credentialData?.password ?: integration.servicePassword
-
-            def body = getRecordCreateBody(integration, fqdn, recordType, record.content,record.ttl ?: 86400,doPointer)
-
-            def results = client.callJsonApi(serviceUrl, apiPath, null, null, new HttpApiClient.RequestOptions(headers:['Content-Type':'application/json','X-API-KEY':token], ignoreSSL: true,body:body), 'PATCH')
-
-            results.data
-
-            log.info("add record results: ${results}")
-            if(results.success){
-                record.externalId = body.rrsets[0].name
-                return new ServiceResponse<NetworkDomainRecord>(true,null,null,record)
-            } else {
-                log.error("An error occurred trying to create a dns record {} via {}: Exit {}: {}",fqdn,integration.name, results.exitCode,results.error ?: results.output)
-                return new ServiceResponse<NetworkDomainRecord>(false,"Error Creating DNS Record ${results.error}",null,record)
-            }
-        } catch(e) {
-            log.error("createRecord error: ${e}", e)
-        } finally {
-            client.shutdownClient()
+        } else {
+            log.error("createRecord record already exists: Name: ${record.name} Type: ${record.type}")
+            return new ServiceResponse<NetworkDomainRecord>(false,"Error Creating DNS Record: Record already exists: ",null,record)
         }
+
+
         return ServiceResponse.error("Unknown Error Occurred Creating Power DNS Record",null,record)
     }
 
@@ -541,6 +552,24 @@ class PowerDnsProvider implements DNSProvider {
         else
             rtn = '/api/v1' + path
         return rtn
+    }
+/**
+ * Verifies the existence of a record in the current context.
+ *
+ * @param record The record data to look up.
+ * @return {@code true} if the record is found in the Morpheus context, {@code false} otherwise.
+ */
+    private boolean doesRecordExist(NetworkDomainRecord record) {
+        def recordService  = morpheus.services.getNetwork().getDomain().getRecord()
+
+        String externalIdPatternStr = "${record.type}:${record.fqdn}".toString()
+        DataQuery query = new DataQuery()
+                .withFilters(
+                        new DataFilter<String>("externalId", "==", externalIdPatternStr)
+                )
+        NetworkDomainRecord existingRecordsWithMatchingExternalId = recordService.find(query)
+
+        return existingRecordsWithMatchingExternalId != null
     }
 
     def getRecordCreateBody(AccountIntegration integration, String fqdn, String recordType, String content, Integer ttl = 86400,Boolean createPtr=false) {
