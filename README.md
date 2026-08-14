@@ -1,61 +1,128 @@
 # Morpheus PowerDNS Plugin
 
-This plugin provides a DNS integration between [PowerDNS](https://www.powerdns.com/) and [Morpheus](https://morpheusdata.com). It enables DNS zone sync, DNS record sync, DNS record creation and removal, and optional pointer-record creation from within the Morpheus platform.
+The Morpheus PowerDNS Plugin integrates Morpheus with PowerDNS Authoritative Server to provide DNS record automation. The plugin communicates with the PowerDNS HTTP API to create and delete DNS records in PowerDNS zones when instances are provisioned or decommissioned.
 
-## Requirements
+## Table of Contents
 
-| Component | Minimum Version |
-|-----------|----------------|
-| Morpheus | 7.0.2 |
+- [Features](#features)
+- [Requirements](#requirements)
+- [Repository structure](#repository-structure)
+- [Building the plugin](#building-the-plugin)
+- [License](#license)
+- [Installing](#installing)
+- [Detailed Usage Steps](#detailed-usage-steps)
+- [API Endpoints](#api-endpoints)
 
-## Installation
-
-1. Download the latest `.jar` from the [Releases](https://github.com/HewlettPackard/morpheus-powerdns-plugin/releases) page, or [build it yourself](#building).
-2. In Morpheus, navigate to **Administration → Integrations → Plugins**.
-3. Click **Browse** and upload the `.jar` file.
-4. The **PowerDNS** integration type will appear after the plugin loads.
-
-## Configuration
-
-When adding a PowerDNS integration in Morpheus (**Administration → Integrations → Add Integration**), provide the following:
-
-| Field | Description |
-|-------|-------------|
-| **API Url** | PowerDNS API endpoint. HTTPS is recommended. |
-| **Credentials** | Morpheus API key credential for the PowerDNS API token. |
-| **Token** | Local PowerDNS API token field used when not selecting a stored credential. |
-| **Service Version** | PowerDNS API version to use: `3` or `4`. |
-| **Create Pointers** | Attempt to create pointer records when creating DNS records. |
-| **Domain Active** | Mark synced DNS domains active by default in Morpheus. |
+---
 
 ## Features
 
-### DNS Management
-The plugin registers a `DNSProvider` for PowerDNS. Supported operations include:
+### DNS Record Management
 
-- Create DNS records through the PowerDNS API
-- Remove DNS records through the PowerDNS API
-- Use PowerDNS API v3 or v4 request formats based on the configured service version
-- Optionally request pointer creation when creating records
-- Store synced record comments, TTLs, types, and content in Morpheus
+Create and delete DNS resource records in PowerDNS zones from Morpheus. Records are managed automatically during instance provisioning and decommissioning. Supports optional PTR (pointer) record creation.
 
-### DNS Sync
-The following resources are discovered and kept in sync from PowerDNS:
+### Cloud Sync
 
-- **DNS Zones** — authoritative zones returned by the PowerDNS server
-- **DNS Records** — record sets within each synced zone
-- **Zone Metadata** — zone type, serial, DNSSEC flag, FQDN, and active state
+Morpheus synchronises the following PowerDNS resources for inventory:
 
-Any additions, updates, and removals in PowerDNS are reflected in Morpheus on the next integration refresh.
+- DNS zones (from the `localhost` server)
+- DNS records within each zone
 
-## Building
+---
 
-```bash
-./gradlew shadowJar
+## Requirements
+
+| Requirement | Version |
+|-------------|---------|
+| Morpheus | 7.0.2 or later |
+| Java | 11 or later |
+| Gradle | Use the included Gradle wrapper (`./gradlew`) |
+
+Additional prerequisites:
+
+- A running PowerDNS Authoritative Server with the HTTP API enabled and accessible from the Morpheus appliance
+- A PowerDNS API key with read/write access
+- Network access from the Morpheus appliance to the PowerDNS API host on the configured port
+
+---
+
+## Repository structure
+
+```
+src/main/groovy/com/morpheusdata/powerdns/
+├── PowerDnsPlugin.groovy         - Plugin entry point; registers PowerDnsProvider and PowerDnsOptionProvider
+├── PowerDnsProvider.groovy       - DNSProvider implementation; DNS operations, sync, OptionTypes
+└── PowerDnsOptionProvider.groovy - UI option source data
+build.gradle, gradle.properties   - Build configuration and plugin metadata
 ```
 
-The plugin JAR will be written to `build/libs/`.
+---
+
+## Building the plugin
+
+Run the following command to compile and package the plugin jar:
+
+```bash
+./gradlew clean build
+```
+
+The packaged jar will be written to `build/libs/`.
+
+To execute tests, use the following command:
+
+```bash
+./gradlew test
+```
+
+---
 
 ## License
 
-Copyright 2024 Morpheus Data, LLC. Licensed under the [Apache License, Version 2.0](LICENSE).
+This project is licensed under the Apache License 2.0.
+
+See the [LICENSE](LICENSE) file for details.
+
+---
+
+## Installing
+
+1. Build the plugin (see [Building the plugin](#building-the-plugin)) or download a released jar.
+2. In Morpheus, navigate to **Administration > Integrations > Plugins**.
+3. Click **Add** and upload the `morpheus-powerdns-plugin-<version>.jar` from `build/libs/`.
+4. Navigate to **Infrastructure > DNS > Add** and select **PowerDNS** to configure the integration.
+
+---
+
+## Detailed Usage Steps
+
+### Adding a PowerDNS Integration
+
+1. Go to **Infrastructure > DNS > Add**.
+2. Select **PowerDNS** as the DNS provider type.
+3. Configure:
+   - **API Url** — PowerDNS API base URL (e.g. `https://pdns.example.com`)
+   - **Credentials** — select **API Key** and provide the PowerDNS API key as the **Token**
+   - **Service Version** — PowerDNS API version (`v1` recommended)
+   - **Create Pointers** — enable to automatically create PTR records
+   - **Domain Active** — enable to activate the domain integration
+4. Save. Morpheus syncs zones from the PowerDNS `localhost` server.
+
+### Creating DNS Records Automatically
+
+When an instance is provisioned on a network with PowerDNS configured, Morpheus creates the DNS record by sending a PATCH request to the appropriate zone endpoint with the new record set.
+
+### Removing DNS Records
+
+When an instance is decommissioned, Morpheus sends a PATCH request to the zone endpoint to remove the record set.
+
+---
+
+## API Endpoints
+
+This plugin communicates with the **PowerDNS HTTP API** at the configured API Url. Authentication uses the `X-API-KEY` header.
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/v1/servers/localhost/zones` | GET | List all zones |
+| `/api/v1/servers/localhost/zones/{zoneId}` | GET | Get zone details and records |
+| `/api/v1/servers/localhost/zones/{zoneId}` | PATCH | Create or delete a resource record set |
