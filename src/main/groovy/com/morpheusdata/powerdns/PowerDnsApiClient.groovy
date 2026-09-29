@@ -36,9 +36,9 @@ class PowerDnsApiClient {
     private final AccountIntegration integration
     private final HttpApiClient client
 
-    PowerDnsApiClient(AccountIntegration integration) {
+    PowerDnsApiClient(AccountIntegration integration, HttpApiClient client = new HttpApiClient()) {
         this.integration = integration
-        this.client = new HttpApiClient()
+        this.client = client
     }
 
     /**

@@ -53,6 +53,17 @@ class PowerDnsProvider implements DNSProvider {
     }
 
     /**
+     * Factory seam for constructing the {@link PowerDnsApiClient} used to talk to Power DNS for a given integration.
+     * Overridable/stubbable in tests so orchestration logic can be verified without making real HTTP calls.
+     *
+     * @param integration The DNS Integration record which contains connectivity info to the DNS Provider
+     * @return a new {@link PowerDnsApiClient} for the passed integration.
+     */
+    protected PowerDnsApiClient createApiClient(AccountIntegration integration) {
+        return new PowerDnsApiClient(integration)
+    }
+
+    /**
      * Creates a manually allocated DNS Record of the specified record type on the passed {@link NetworkDomainRecord} object.
      * This is typically called outside of automation and is a manual method for administration purposes.
      * @param integration The DNS Integration record which contains things like connectivity info to the DNS Provider
@@ -63,7 +74,7 @@ class PowerDnsProvider implements DNSProvider {
      */
     @Override
     ServiceResponse createRecord(AccountIntegration integration, NetworkDomainRecord record, Map opts) {
-        PowerDnsApiClient apiClient = new PowerDnsApiClient(integration)
+        PowerDnsApiClient apiClient = createApiClient(integration)
         try {
             // Check PowerDNS directly (rather than the Morpheus sync cache) so records created
             // in between sync passes are still detected and duplicates are avoided.
@@ -133,7 +144,7 @@ class PowerDnsProvider implements DNSProvider {
      */
     @Override
     ServiceResponse deleteRecord(AccountIntegration integration, NetworkDomainRecord record, Map opts) {
-        PowerDnsApiClient apiClient = new PowerDnsApiClient(integration)
+        PowerDnsApiClient apiClient = createApiClient(integration)
         try {
             def results = apiClient.deleteRecord(record)
             log.info("delete record results: ${results}")
@@ -161,7 +172,7 @@ class PowerDnsProvider implements DNSProvider {
     @Override
     void refresh(AccountIntegration integration) {
         log.debug("Refreshing Power DNS")
-        PowerDnsApiClient apiClient = new PowerDnsApiClient(integration)
+        PowerDnsApiClient apiClient = createApiClient(integration)
         try {
             def apiUrl = apiClient.serviceUrl
             def apiUri = new URI(apiUrl)

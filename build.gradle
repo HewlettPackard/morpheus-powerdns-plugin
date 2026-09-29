@@ -33,6 +33,9 @@ repositories {
 
 configurations {
 	provided
+	testImplementation.extendsFrom provided
+	functionalTestImplementation.extendsFrom testImplementation
+	functionalTestRuntimeOnly.extendsFrom testRuntimeOnly
 }
 
 dependencies {
@@ -50,16 +53,23 @@ dependencies {
 	testImplementation "org.slf4j:slf4j-parent:$slf4jVersion"
 
 	testImplementation "org.codehaus.groovy:groovy-all:$groovyVersion"
-	testImplementation 'net.bytebuddy:byte-buddy:1.9.3'
-	testImplementation 'org.objenesis:objenesis:2.6'
 	testImplementation "org.spockframework:spock-core:$spockVersion"
-	testImplementation 'cglib:cglib-nodep:3.2.12'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	// Spock 2.x needs byte-buddy on the classpath to mock concrete classes (e.g. HttpApiClient).
+	testImplementation 'net.bytebuddy:byte-buddy:1.14.9'
+	testImplementation 'org.objenesis:objenesis:3.3'
 }
 
 
 sourceSets {
 	main {
 		compileClasspath += configurations.provided
+	}
+	functionalTest {
+		groovy.srcDirs += ['src/functionalTest/groovy']
+		resources.srcDirs += ['src/functionalTest/resources']
+		compileClasspath += main.output
+		runtimeClasspath += output + compileClasspath
 	}
 }
 
@@ -93,6 +103,23 @@ task(console, dependsOn: 'classes', type: JavaExec) {
 }
 
 test {
+	useJUnitPlatform()
+	testLogging {
+		exceptionFormat = 'full'
+		showStandardStreams = true
+	}
+}
+
+// Functional tests exercise PowerDnsApiClient against a real, reachable Power DNS instance.
+// They are excluded from `check`/`test` and only run when explicitly invoked, since they require
+// live infrastructure (POWERDNS_TEST_URL / POWERDNS_TEST_API_KEY). See src/functionalTest/README.md.
+task functionalTest(type: Test) {
+	useJUnitPlatform()
+	description = 'Runs functional tests against a real, reachable Power DNS instance.'
+	group = 'verification'
+	testClassesDirs = sourceSets.functionalTest.output.classesDirs
+	classpath = sourceSets.functionalTest.runtimeClasspath
+	shouldRunAfter test
 	testLogging {
 		exceptionFormat = 'full'
 		showStandardStreams = true
