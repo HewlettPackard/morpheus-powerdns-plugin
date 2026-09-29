@@ -63,62 +63,32 @@ class PowerDnsProvider implements DNSProvider {
      */
     @Override
     ServiceResponse createRecord(AccountIntegration integration, NetworkDomainRecord record, Map opts) {
-        HttpApiClient client = new HttpApiClient()
+        PowerDnsApiClient apiClient = new PowerDnsApiClient(integration)
         try {
             // Check PowerDNS directly (rather than the Morpheus sync cache) so records created
             // in between sync passes are still detected and duplicates are avoided.
-            if(doesRecordExistInProvider(client, integration, record)) {
+            if(apiClient.doesRecordExist(record)) {
                 log.error("createRecord record already exists: Name: ${record.name} Type: ${record.type}")
                 return new ServiceResponse<NetworkDomainRecord>(false,"Error Creating DNS Record: Record already exists: ",null,record)
             }
 
-            def results = sendCreateRecordRequest(client, integration, record)
+            log.info("Creating DNS Record via Power DNS...")
+            Boolean doPointer = (integration.serviceFlag == null || integration.serviceFlag)
+            def results = apiClient.createRecord(record, doPointer)
             return buildCreateRecordResponse(results, integration, record)
         } catch(e) {
             log.error("createRecord error: ${e}", e)
         } finally {
-            client.shutdownClient()
+            apiClient.shutdown()
         }
 
         return ServiceResponse.error("Unknown Error Occurred Creating Power DNS Record",null,record)
     }
 
     /**
-     * Builds the Power DNS request body used to create/patch the record described by the passed
-     * {@link NetworkDomainRecord}.
-     *
-     * @param integration The DNS Integration record which contains connectivity info to the DNS Provider
-     * @param record The domain record to create on the Power DNS zone.
-     * @return the request body to send to the Power DNS create/patch call.
-     */
-    private buildCreateRecordBody(AccountIntegration integration, NetworkDomainRecord record) {
-        Boolean doPointer = (integration.serviceFlag == null || integration.serviceFlag)
-        String fqdn = normalizeFqdn(record.fqdn)
-        return getRecordCreateBody(integration, fqdn, record.type, record.content, record.ttl ?: 86400, doPointer)
-    }
-
-    /**
-     * Issues the Power DNS API call to create/patch the record described by the passed {@link NetworkDomainRecord}.
-     *
-     * @param client the {@link HttpApiClient} to use for the request
-     * @param integration The DNS Integration record which contains connectivity info to the DNS Provider
-     * @param record The domain record to create on the Power DNS zone.
-     * @return the raw {@link HttpApiClient} response from the Power DNS create/patch call.
-     */
-    private sendCreateRecordRequest(HttpApiClient client, AccountIntegration integration, NetworkDomainRecord record) {
-        log.info("Creating DNS Record via Power DNS...")
-        String serviceUrl = cleanServiceUrl(integration.serviceUrl)
-        String apiPath = cleanApiPath('/' + record.networkDomain.externalId)
-        String token = integration.credentialData?.password ?: integration.servicePassword
-        def body = buildCreateRecordBody(integration, record)
-
-        return client.callJsonApi(serviceUrl, apiPath, null, null, new HttpApiClient.RequestOptions(headers:['Content-Type':'application/json','X-API-KEY':token], ignoreSSL: true, body:body), 'PATCH')
-    }
-
-    /**
      * Translates the raw Power DNS create/patch response into a {@link ServiceResponse}.
      *
-     * @param results the raw {@link HttpApiClient} response from {@link #sendCreateRecordRequest}.
+     * @param results the raw {@link HttpApiClient} response from {@link PowerDnsApiClient#createRecord}.
      * @param integration The DNS Integration record which contains connectivity info to the DNS Provider
      * @param record The domain record that was being created.
      * @return a ServiceResponse with the success/error state of the create operation as well as the modified record.
@@ -142,13 +112,13 @@ class PowerDnsProvider implements DNSProvider {
     /**
      * Logs and translates a failed Power DNS create/patch response into an error {@link ServiceResponse}.
      *
-     * @param results the raw {@link HttpApiClient} response from {@link #sendCreateRecordRequest}.
+     * @param results the raw {@link HttpApiClient} response from {@link PowerDnsApiClient#createRecord}.
      * @param integration The DNS Integration record which contains connectivity info to the DNS Provider
      * @param record The domain record that failed to create.
      * @return an error ServiceResponse describing the failure.
      */
     private ServiceResponse<NetworkDomainRecord> onCreateRecordFailure(def results, AccountIntegration integration, NetworkDomainRecord record) {
-        log.error("An error occurred trying to create a dns record {} via {}: Exit {}: {}",normalizeFqdn(record.fqdn),integration.name, results.errorCode,results.error ?: results?.data?.error)
+        log.error("An error occurred trying to create a dns record {} via {}: Exit {}: {}",record.fqdn,integration.name, results.errorCode,results.error ?: results?.data?.error)
         return new ServiceResponse<NetworkDomainRecord>(false,"Error Creating DNS Record ${results.error}",null,record)
     }
 
@@ -163,35 +133,21 @@ class PowerDnsProvider implements DNSProvider {
      */
     @Override
     ServiceResponse deleteRecord(AccountIntegration integration, NetworkDomainRecord record, Map opts) {
-        HttpApiClient client = new HttpApiClient()
+        PowerDnsApiClient apiClient = new PowerDnsApiClient(integration)
         try {
-            String token = integration.credentialData?.password ?: integration.servicePassword
-
-            def serviceUrl = cleanServiceUrl(integration.serviceUrl)
-            def apiPath = cleanApiPath('/' + record.networkDomain.externalId)
-            String recordType = record.type
-            String fqdn = record.fqdn
-            if(!fqdn.endsWith('.')) {
-                fqdn = fqdn + '.'
-            }
-
-            def body = getRecordDeleteBody(integration, fqdn, recordType, record.content)
-            def results = client.callJsonApi(serviceUrl, apiPath, null, null, new HttpApiClient.RequestOptions(headers:['Content-Type':'application/json','X-API-KEY':token], ignoreSSL: true,body:body), 'PATCH')
-
-
+            def results = apiClient.deleteRecord(record)
             log.info("delete record results: ${results}")
 
-                if(results.success) {
-                    return ServiceResponse.success()
-                } else {
-                    return ServiceResponse.error("Error removing Power DNS Record ${record.name} - ${results.error}")
-                }
+            if(results.success) {
+                return ServiceResponse.success()
+            } else {
+                return ServiceResponse.error("Error removing Power DNS Record ${record.name} - ${results.error}")
+            }
         } catch(e) {
             log.error("deleteRecord error: ${e}", e)
             return ServiceResponse.error("System Error removing Power DNS Record ${record.name} - ${e.message}")
-
         } finally {
-            client.shutdownClient()
+            apiClient.shutdown()
         }
     }
 
@@ -205,9 +161,9 @@ class PowerDnsProvider implements DNSProvider {
     @Override
     void refresh(AccountIntegration integration) {
         log.debug("Refreshing Power DNS")
-        HttpApiClient client = new HttpApiClient()
+        PowerDnsApiClient apiClient = new PowerDnsApiClient(integration)
         try {
-            def apiUrl = cleanServiceUrl(integration.serviceUrl)
+            def apiUrl = apiClient.serviceUrl
             def apiUri = new URI(apiUrl)
             def apiHost = apiUri.getHost()
             def apiPort = apiUri.getPort() ?: apiUrl?.startsWith('https') ? 443 : 80
@@ -217,8 +173,8 @@ class PowerDnsProvider implements DNSProvider {
             if(hostOnline) {
                 log.debug("Host Online for PowerDns")
                 Date now = new Date()
-                cacheZones(client,integration)
-                cacheZoneRecords(client,integration)
+                cacheZones(apiClient,integration)
+                cacheZoneRecords(apiClient,integration)
                 log.debug("Sync Completed in ${new Date().time - now.time}ms")
                 morpheus.integration.updateAccountIntegrationStatus(integration, AccountIntegration.Status.ok).subscribe().dispose()
             } else {
@@ -227,7 +183,7 @@ class PowerDnsProvider implements DNSProvider {
         } catch(e) {
             log.error("refresh PowerDNS error: ${e}", e)
         } finally {
-            client.shutdownClient()
+            apiClient.shutdown()
         }
     }
 
@@ -275,9 +231,9 @@ class PowerDnsProvider implements DNSProvider {
         }
     }
 // Cache Zones methods
-    def cacheZones(HttpApiClient client, AccountIntegration integration) {
+    def cacheZones(PowerDnsApiClient apiClient, AccountIntegration integration) {
         try {
-            def listResults = listZones(client,integration)
+            def listResults = apiClient.listZones()
             final Boolean defaultActive = integration?.configMap?.domainActive ? true : false
             if (listResults.success) {
                 List apiItems = listResults.results as List<Map>
@@ -362,15 +318,15 @@ class PowerDnsProvider implements DNSProvider {
 
 
     // Cache Zones records
-    def cacheZoneRecords(final HttpApiClient client, final AccountIntegration integration) {
+    def cacheZoneRecords(final PowerDnsApiClient apiClient, final AccountIntegration integration) {
         morpheus.network.domain.listIdentityProjections(integration.id).buffer(50).concatMap { Collection<NetworkDomainIdentityProjection> poolIdents ->
             return morpheus.network.domain.listById(poolIdents.collect{it.id})
         }.concatMap { NetworkDomain domain ->
-            def listResults = listRecords(client, integration,domain)
+            def listResults = apiClient.listRecords(domain)
 
 
             if (listResults.success) {
-                List<Map> apiItems = getRecordSetResults(integration,listResults) as  List<Map>
+                List<Map> apiItems = apiClient.getRecordSetResults(listResults) as  List<Map>
                 Observable<NetworkDomainRecordIdentityProjection> domainRecords = morpheus.network.domain.record.listIdentityProjections(domain,null)
                 SyncTask<NetworkDomainRecordIdentityProjection, Map, NetworkDomainRecord> syncTask = new SyncTask<NetworkDomainRecordIdentityProjection, Map, NetworkDomainRecord>(domainRecords, apiItems)
                 return syncTask.addMatchFunction {  NetworkDomainRecordIdentityProjection domainObject, Map apiItem ->
@@ -380,7 +336,7 @@ class PowerDnsProvider implements DNSProvider {
                 }.onDelete {removeItems ->
                     morpheus.network.domain.record.remove(domain, removeItems).blockingGet()
                 }.onAdd { itemsToAdd ->
-                    addMissingDomainRecords(integration,domain, itemsToAdd)
+                    addMissingDomainRecords(apiClient,domain, itemsToAdd)
                 }.withLoadObjectDetails { List<SyncTask.UpdateItemDto<NetworkDomainRecordIdentityProjection,Map>> updateItems ->
                     Map<Long, SyncTask.UpdateItemDto<NetworkDomainRecordIdentityProjection, Map>> updateItemMap = updateItems.collectEntries { [(it.existingItem.id): it]}
                     return morpheus.network.domain.record.listById(updateItems.collect{it.existingItem.id} as Collection<Long>).map { NetworkDomainRecord domainRecord ->
@@ -388,7 +344,7 @@ class PowerDnsProvider implements DNSProvider {
                         return new SyncTask.UpdateItem<NetworkDomainRecord,Map>(existingItem:domainRecord, masterItem:matchItem.masterItem)
                     }
                 }.onUpdate { List<SyncTask.UpdateItem<NetworkDomainRecord,Map>> updateItems ->
-                    updateMatchedDomainRecords(integration, updateItems)
+                    updateMatchedDomainRecords(apiClient, updateItems)
                 }.observe()
             } else {
                 return Single.just(false)
@@ -400,7 +356,7 @@ class PowerDnsProvider implements DNSProvider {
     }
 
 
-    void updateMatchedDomainRecords(AccountIntegration integration, List<SyncTask.UpdateItem<NetworkDomainRecord, Map>> updateList) {
+    void updateMatchedDomainRecords(PowerDnsApiClient apiClient, List<SyncTask.UpdateItem<NetworkDomainRecord, Map>> updateList) {
         def records = []
         updateList?.each { update ->
             NetworkDomainRecord existingItem = update.existingItem
@@ -408,7 +364,7 @@ class PowerDnsProvider implements DNSProvider {
                 def correctExternal = "${update.masterItem.type.toUpperCase()}:${update.masterItem.name}"
                 //update view ?
                 Boolean save = false
-                def recordContent = getRecordContent(integration, update.masterItem)
+                def recordContent = apiClient.getRecordContent(update.masterItem)
                 if(existingItem.content != recordContent) {
                     existingItem.content = recordContent
                     save = true
@@ -429,12 +385,12 @@ class PowerDnsProvider implements DNSProvider {
         }
     }
 
-    void addMissingDomainRecords(AccountIntegration integration, NetworkDomain domain, Collection<Map> addList) {
+    void addMissingDomainRecords(PowerDnsApiClient apiClient, NetworkDomain domain, Collection<Map> addList) {
         List<NetworkDomainRecord> records = []
 
         addList?.each {record ->
             def addConfig = [networkDomain:domain, fqdn:NetworkUtility.getFqdnDomainName(record.name),
-                             type:record.type?.toUpperCase(), comments:cleanComments(record.comments), ttl:record.ttl, content:getRecordContent(integration, record),
+                             type:record.type?.toUpperCase(), comments:cleanComments(record.comments), ttl:record.ttl, content:apiClient.getRecordContent(record),
                              externalId:"${record.type?.toUpperCase()}:${record.name}", source:'sync']
             if(addConfig.type == 'SOA' || addConfig.type == 'NS')
                 addConfig.name = record.name
@@ -520,205 +476,12 @@ class PowerDnsProvider implements DNSProvider {
 
 
 
-    private listZones(HttpApiClient client, AccountIntegration integration, Map opts = [:]) {
-        def rtn = [success:false, errors: [:]]
-        def serviceUrl = cleanServiceUrl(integration.serviceUrl)
-        def apiPath = getApiPath(integration, '/servers/localhost/zones')
-        String token = integration.credentialData?.password ?: integration.servicePassword
-        def results = client.callJsonApi(serviceUrl, apiPath, null, null, new HttpApiClient.RequestOptions(headers:['Content-Type':'application/json','X-API-KEY':token], ignoreSSL: true), 'GET')
-        rtn.success = results?.success && !results?.error
-        log.debug("getItem results: ${results}")
-        if(rtn.success) {
-            rtn.results = results.data
-            rtn.headers = results.headers
-        } else {
-            rtn.msg = results.error
-        }
-        return rtn
-    }
-
-    private listRecords(HttpApiClient client, AccountIntegration integration, NetworkDomain domain, Map opts = [:]) {
-        def rtn = [success:false]
-        String token = integration.credentialData?.password ?: integration.servicePassword
-        def serviceUrl = cleanServiceUrl(integration.serviceUrl)
-        if(domain && domain.externalId) {
-            def apiPath = cleanApiPath('/' + domain.externalId)
-            Map<String,String> query = [:]
-            if(opts.max)
-                query.max = opts.max.toString()
-            if(opts.phrase)
-                query.q = opts.phrase.toString()
-
-            def results = client.callJsonApi(serviceUrl, apiPath, null, null, new HttpApiClient.RequestOptions(headers:['Content-Type':'application/json','X-API-KEY':token], ignoreSSL: true, queryParams: query), 'GET')
-
-
-            rtn.success = results?.success && results?.error != true
-            log.debug("getItem results: ${results}")
-            if(rtn.success) {
-                rtn.results = results.data
-                rtn.headers = results.headers
-            }
-            return rtn
-        }
-        return rtn
-    }
-
-    protected getRecordSetResults(AccountIntegration integration, Map data) {
-        def rtn
-        if(integration.serviceVersion == '3') {
-            rtn = data?.results?.records
-        } else {
-            rtn = data?.results?.rrsets
-        }
-        return rtn
-    }
-
-    protected String cleanApiPath(String path) {
-        String rtn = path
-        if(rtn?.startsWith('//'))
-            rtn = rtn.substring(1)
-        return rtn
-    }
-
-    protected String cleanServiceUrl(String url) {
-        String rtn = url
-        def slashIndex = rtn.indexOf('/', 10)
-        if(slashIndex > 10)
-            rtn = rtn.substring(0, slashIndex)
-        return rtn
-    }
-
-    protected getApiPath(AccountIntegration integration, String path) {
-        def rtn
-        if(integration.serviceVersion == '3')
-            rtn = path
-        else
-            rtn = '/api/v1' + path
-        return rtn
-    }
-/**
- * Verifies the existence of a record by querying Power DNS directly for the current state of the zone.
- * This is intentionally queried live against the provider (rather than the Morpheus sync cache) since the
- * cache is only refreshed on the periodic sync pass and would otherwise miss records created moments earlier,
- * allowing duplicates to slip through in the window before the next sync.
- *
- * @param client the {@link HttpApiClient} to use for the lookup
- * @param integration The DNS Integration record which contains connectivity info to the DNS Provider
- * @param record The record data to look up.
- * @return {@code true} if a record with the same name and type is found on the Power DNS zone, {@code false} otherwise.
- */
-    private boolean doesRecordExistInProvider(HttpApiClient client, AccountIntegration integration, NetworkDomainRecord record) {
-        def listResults = listRecords(client, integration, record.networkDomain)
-        if(!listResults.success) {
-            log.warn("doesRecordExistInProvider: unable to retrieve existing records for domain ${record.networkDomain?.name} from Power DNS; proceeding without a duplicate check.")
-            return false
-        }
-
-        List<Map> apiItems = getRecordSetResults(integration, listResults) as List<Map>
-        return apiItems?.any { Map apiItem -> matchesRecord(apiItem, record) } ?: false
-    }
-
-    /**
-     * Compares a Power DNS API record entry (as returned by the zone GET call) against a Morpheus
-     * {@link NetworkDomainRecord} to determine if they refer to the same record.
-     *
-     * @param apiItem a single record entry as returned by the Power DNS zone API.
-     * @param record The Morpheus record to compare against.
-     * @return {@code true} if the name and type match, {@code false} otherwise.
-     */
-    private boolean matchesRecord(Map apiItem, NetworkDomainRecord record) {
-        String recordType = record.type?.toUpperCase()
-        String fqdn = normalizeFqdn(record.fqdn)
-        String apiName = normalizeFqdn(apiItem.name?.toString())
-
-        return apiItem.type?.toString()?.toUpperCase() == recordType && apiName == fqdn
-    }
-
-    /**
-     * Ensures the passed fqdn ends with a trailing dot, matching the format used by Power DNS record names.
-     *
-     * @param fqdn the fqdn to normalize.
-     * @return the fqdn with a trailing dot, or the original value if null/blank.
-     */
-    private String normalizeFqdn(String fqdn) {
-        if(fqdn && !fqdn.endsWith('.')) {
-            return fqdn + '.'
-        }
-        return fqdn
-    }
-
-    def getRecordCreateBody(AccountIntegration integration, String fqdn, String recordType, String content, Integer ttl = 86400,Boolean createPtr=false) {
-        def rtn
-        if(integration.serviceVersion == '3') {
-            def recordName = NetworkUtility.getFriendlyDomainName(fqdn)
-            rtn = [
-                    rrsets: [
-                            [name:recordName, type:recordType, ttl:ttl, changetype:'REPLACE',
-                             records:[
-                                     [content:content, disabled:false, name:recordName, ttl:ttl, type:recordType, 'set-ptr':createPtr]
-                             ]
-                            ]
-                    ]
-            ]
-        } else {
-            def recordName = fqdn
-            rtn = [
-                    rrsets: [
-                            [name:recordName, type:recordType, ttl:ttl, changetype:'REPLACE',
-                             records:[
-                                     [content:content, disabled:false]
-                             ]
-                            ]
-                    ]
-            ]
-        }
-        return rtn
-    }
-
-    def getRecordDeleteBody(AccountIntegration integration, String fqdn, String recordType, String content, Integer ttl = 86400) {
-        def rtn
-        if(integration.serviceVersion == '3') {
-            def recordName = NetworkUtility.getFriendlyDomainName(fqdn)
-            rtn = [
-                    rrsets: [
-                            [name:recordName, type:recordType, ttl:ttl, changetype:'DELETE',
-                             records:[
-                                     [content:content, disabled:false, name:recordName, ttl:ttl, type:recordType]
-                             ]
-                            ]
-                    ]
-            ]
-        } else {
-            def recordName = fqdn
-            rtn = [
-                    rrsets: [
-                            [name:recordName, type:recordType, ttl:ttl, changetype:'DELETE',
-                             records:[
-                                     [content:content, disabled:false]
-                             ]
-                            ]
-                    ]
-            ]
-        }
-        return rtn
-    }
-
     String cleanComments(comments) {
         String rtn = null
         if(comments instanceof List || comments instanceof Map) {
             rtn = JsonOutput.toJson(comments)
         } else if(comments instanceof CharSequence) {
             rtn = comments.toString()
-        }
-        return rtn
-    }
-
-    String getRecordContent(AccountIntegration integration, Map data) {
-        String rtn
-        if(integration.serviceVersion == '3') {
-            rtn = data.content
-        } else {
-            rtn = data.records?.collect{it.content}?.join('\n')
         }
         return rtn
     }
