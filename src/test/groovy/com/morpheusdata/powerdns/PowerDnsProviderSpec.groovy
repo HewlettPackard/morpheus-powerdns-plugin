@@ -89,7 +89,7 @@ class PowerDnsProviderSpec extends Specification {
 
         then:
         1 * apiClient.doesRecordExist(domainRecord) >> false
-        1 * apiClient.createRecord(domainRecord, true) >> new ServiceResponse(false, 'bad request', null, null)
+        1 * apiClient.createRecord(domainRecord, true) >> ServiceResponse.error('bad request')
         1 * apiClient.shutdown()
         !result.success
         result.msg.contains('bad request')
@@ -118,10 +118,11 @@ class PowerDnsProviderSpec extends Specification {
         ServiceResponse result = provider.deleteRecord(integration(), domainRecord, [:])
 
         then:
-        1 * apiClient.deleteRecord(domainRecord) >> new ServiceResponse(false, 'not found', null, null)
+        1 * apiClient.deleteRecord(domainRecord) >> ServiceResponse.error('not found')
         1 * apiClient.shutdown()
         !result.success
-        result.msg.contains('not found')
+        result.error.contains('not found')
+
     }
 
     def "deleteRecord returns a system error response when the api client throws"() {
@@ -136,6 +137,6 @@ class PowerDnsProviderSpec extends Specification {
         1 * apiClient.deleteRecord(domainRecord) >> { throw new RuntimeException('boom') }
         1 * apiClient.shutdown()
         !result.success
-        result.msg.contains('boom')
+        result.error.contains('boom')
     }
 }

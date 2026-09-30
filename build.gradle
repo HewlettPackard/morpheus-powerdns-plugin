@@ -69,7 +69,7 @@ sourceSets {
 		groovy.srcDirs += ['src/functionalTest/groovy']
 		resources.srcDirs += ['src/functionalTest/resources']
 		compileClasspath += main.output
-		runtimeClasspath += output + compileClasspath
+		runtimeClasspath += main.output
 	}
 }
 
